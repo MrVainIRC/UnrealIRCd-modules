@@ -1,6 +1,6 @@
 /*
  * Project Name: NickCollator
- * 
+ *
  * Description:
  * This module enables your UnrealIRCd server to handle nick names across
  * various scripts and languages by using Unicode encoding for consistent
@@ -40,11 +40,12 @@ struct mapping {
     int num_equivalents;      // How many equivalents are in this group
 };
 
-// Structure for holding all mappings and related information
+// Structure for holding all mappings, related information and configuration options
 struct cfgstruct {
     struct mapping *mappings; // Array of all mappings
     int num_mappings;         // Number of groups in mappings
     unsigned short int got_mapping; // Indicates if mappings are defined in config
+    int collator_strength;  // Hold collator strength option
 };
 
 static struct cfgstruct muhcfg; // Global configuration structure
@@ -52,8 +53,8 @@ static struct cfgstruct muhcfg; // Global configuration structure
 // Module header - contains basic info about the module
 ModuleHeader MOD_HEADER = {
     "third/nickcollator",      // Module name
-    "0.1.0",                     // Version number
-    "Block nick changes based on custom character mapping using ICU Collation",  // Description
+    "0.2.0",                     // Version number
+    "Block nick changes based on custom character mapping and/or ICU Collation",  // Description
     "MrVain",                  // Author's name
     "unrealircd-6",            // Compatible UnrealIRCd version
 };
@@ -75,6 +76,7 @@ void setcfg(void) {
     muhcfg.mappings = NULL;       // Set mappings to NULL (empty at start)
     muhcfg.num_mappings = 0;      // Set number of mappings to zero
     muhcfg.got_mapping = 0;       // Indicate that no mappings are yet defined
+    muhcfg.collator_strength = -1;     // Default to "off" for collator strength
 }
 
 // Function to free memory used by configuration
@@ -93,11 +95,14 @@ void freecfg(void) {
 // Initialize ICU collator (for comparing strings)
 static void collator_init(void) {
     UErrorCode status = U_ZERO_ERROR;
-    collator = ucol_open("", &status); // Open a default collator
-    if (U_FAILURE(status)) {           // Check if it failed
-        config_error("Failed to initialize ICU collator: %s", u_errorName(status));
+
+    if (muhcfg.collator_strength != -1) {   // only if collator should be used
+        collator = ucol_open("", &status);  // Open a default collator
+        if (U_FAILURE(status)) {            // Check if it failed
+            config_error("ICU collator could not be initialized: %s", u_errorName(status));
+        }
+        ucol_setStrength(collator, muhcfg.collator_strength); // Set collation strength
     }
-    ucol_setStrength(collator, UCOL_IDENTICAL); // Set collation strength
 }
 
 // Function to apply mappings to a Unicode string
@@ -111,6 +116,7 @@ void apply_collator_mapping(UChar *u_str, int32_t length) {
             for (int k = 0; k < current_mapping->num_equivalents; k++) {
                 if (j == k) continue;  // Skip if mapping to itself
 
+                // Convert both source and target equivalents to Unicode
                 UChar u_from[10];
                 UChar u_to[10];
 
@@ -126,6 +132,9 @@ void apply_collator_mapping(UChar *u_str, int32_t length) {
                 // Look for occurrences of u_from in the input string and replace them with u_to
                 UChar *pos = u_strstr(u_str, u_from);
                 while (pos) {
+                    // Shift the remaining part of the string to accommodate the replacement
+                    u_memmove(pos + to_len, pos + from_len, u_strlen(pos + from_len) + 1);
+
                     // Replace by copying u_to into position of u_from
                     u_memcpy(pos, u_to, to_len);
 
@@ -156,6 +165,11 @@ int compare_nicks(const char *nick1, const char *nick2) {
     // Apply mappings to both nicknames
     apply_collator_mapping(u_nick1, u_strlen(u_nick1));
     apply_collator_mapping(u_nick2, u_strlen(u_nick2));
+
+    // Compare the nicknames without the ICU collator IF collator_strength !=off
+    if (muhcfg.collator_strength == -1) {
+        return u_strcmp(u_nick1, u_nick2) == 0 ? 0 : 1;
+    }
 
     // Compare the nicknames using the ICU collator
     return ucol_strcoll(collator, u_nick1, -1, u_nick2, -1);
@@ -202,17 +216,29 @@ int MODNAME_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
 
     // Check each item in the "nickcollator" block
     for (cep = ce->items; cep; cep = cep->next) {
-        if (strcmp(cep->name, "mapping"))
-            continue;
-
-        muhcfg.got_mapping = 1; // Indicate mappings are present
-
-        // Check nested entries in "mapping" directive
-        for (cep2 = cep->items; cep2; cep2 = cep2->next) {
-            if (!cep2->name || !strlen(cep2->name)) {
-                config_error("%s:%i: mapping entry must be non-empty", cep2->file->filename, cep2->line_number);
+        if (!strcmp(cep->name, "collator_strength")) {
+            // Verify the collator strength value is valid
+            if (strcasecmp(cep->value, "off") &&
+                strcasecmp(cep->value, "primary") &&
+                strcasecmp(cep->value, "secondary") &&
+                strcasecmp(cep->value, "tertiary") &&
+                strcasecmp(cep->value, "quaternary") &&
+                strcasecmp(cep->value, "identical")) {
+                config_error("%s:%i: Invalid collator strength value: %s",
+                             cep->file->filename, cep->line_number, cep->value);
                 errors++;
-                continue;
+            }
+        } else if (!strcmp(cep->name, "mapping")) {
+            muhcfg.got_mapping = 1; // Indicate mappings are present
+
+            // Check nested entries in "mapping" directive
+            for (cep2 = cep->items; cep2; cep2 = cep2->next) {
+                if (!cep2->name || !strlen(cep2->name)) {
+                    config_error("%s:%i: mapping entry must be non-empty",
+                                 cep2->file->filename, cep2->line_number);
+                    errors++;
+                    continue;
+                }
             }
         }
     }
@@ -234,6 +260,24 @@ int MODNAME_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
 
     // Loop through each item in the "nickcollator" block
     for (cep = ce->items; cep; cep = cep->next) {
+        if (!strcmp(cep->name, "collator_strength")) {
+            if (!strcasecmp(cep->value, "off")) {
+                muhcfg.collator_strength = -1; // -1 = off
+            } else if (!strcasecmp(cep->value, "primary")) {
+                muhcfg.collator_strength = UCOL_PRIMARY;
+            } else if (!strcasecmp(cep->value, "secondary")) {
+                muhcfg.collator_strength = UCOL_SECONDARY;
+            } else if (!strcasecmp(cep->value, "tertiary")) {
+                muhcfg.collator_strength = UCOL_TERTIARY;
+            } else if (!strcasecmp(cep->value, "quaternary")) {
+                muhcfg.collator_strength = UCOL_QUATERNARY;
+            } else if (!strcasecmp(cep->value, "identical")) {
+                muhcfg.collator_strength = UCOL_IDENTICAL;
+            } else {
+                config_error("Invalid collator strength value: %s", cep->value);
+                return -1;
+            }
+        }
         if (!strcmp(cep->name, "mapping")) {
             // Process nested entries in "mapping"
             for (cep2 = cep->items; cep2; cep2 = cep2->next) {
