@@ -64,7 +64,7 @@ After setting it up, NickCollator will block users from choosing nick names base
 
 ## License
 
-This project is under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is under the AGPL Version 3 License. See the [LICENSE](LICENSE) file for details.
 
 ## Thanks for Using NickCollator!
 
