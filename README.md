@@ -30,7 +30,7 @@ If you know how to improve these modules or if you find a bug, feel free to open
 
 ## License
 
-This project is under the MIT License – check the [LICENSE](LICENSE) file for details.
+Licenses for each module can be found in their respective directories.
 
 ## Helpful Links
 
