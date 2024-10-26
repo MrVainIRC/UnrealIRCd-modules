@@ -1,3 +1,31 @@
+/*
+ * Project Name: NickCollator
+ * 
+ * Description:
+ * This module enables your UnrealIRCd server to handle nick names across
+ * various scripts and languages by using Unicode encoding for consistent
+ * character handling.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Links to external resources:
+ * - Template for custom configuration blocks in UnrealIRCd:
+ *   https://gitgud.malvager.net/Wazakindjes/unrealircd_mods
+ * - ICU Project: https://icu.unicode.org/
+ * - UnrealIRCd: https://www.unrealircd.org/
+ */
+
 #include "unrealircd.h"
 #include <unicode/ucol.h>     // ICU for collation (sorting/comparing strings)
 #include <unicode/ucnv.h>     // ICU for UTF-8 conversion
