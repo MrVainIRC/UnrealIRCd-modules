@@ -59,8 +59,10 @@ After setting it up, NickCollator will block users from choosing nick names base
 ## Useful Links
 
 - [UnrealIRCd Documentation](https://www.unrealircd.org/docs/)
+- [UnrealIRCd Documentation - Nick Character Sets](https://www.unrealircd.org/docs/Nick_Character_Sets)
 - [ICU Project](https://icu.unicode.org/)
 - [ICU Project on GitHub](https://github.com/unicode-org/icu)
+- [Template for: Custom configuration blocks in UnrealIRCd](https://gitgud.malvager.net/Wazakindjes/unrealircd_mods/src/branch/master/templates/conf.c)
 
 ## License
 
