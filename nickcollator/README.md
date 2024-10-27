@@ -44,7 +44,7 @@ nickcollator {
 
 ### How It Works
 
-- **mapping**: This is where you define characters that should be treated as the same. For example, Cyrillic `О` (which looks like Latin `O`) can be mapped to avoid confusion. You can add as many mappings as you need for the characters you want to handle. <br/>
+- **mapping**: This is where you define characters that should be treated as the same. For example, cyrillic `О` and latin `O` can be mapped to avoid confusion. You can add as many mappings as you need for the characters you want to handle. <br/>
 
 - **collator_strength**: This is where you define the strength of the collator or turn it off (direct mapping without the ICU collator). For more information about the different strength settings, see [Comparison Levels](https://unicode-org.github.io/icu/userguide/collation/concepts.html#comparison-levels).
 - **NOTE!** ***NickCollator does not bypass UnrealIRCd's internal nickname collision checks! This means that some collator strength settings might not have the full effect as described in the ICU documentation. Test carefully before using it on a live server!***
