@@ -1,8 +1,8 @@
 # NickCollator Module for UnrealIRCd
 
-This module enables your UnrealIRCd server to handle nick names across various scripts and languages by using Unicode encoding for consistent character handling.
+This module enables your UnrealIRCd server to handle nicknames across various scripts and languages by using Unicode encoding for consistent character handling.
 
-- **Better Nick Name Handling**: Blocks nick names based on your custom character mappings, even across character sets.
+- **Better Nickname Handling**: Blocks nicknames based on your custom character mappings, even across character sets.
 - **Custom Character Mappings**: Set up rules to treat specific characters as the same across different scripts and alphabets.
 
 ## Requirements
@@ -30,25 +30,28 @@ Also, for the NickCollator module to work properly across your network, you’ll
 Once NickCollator is installed, set up your mappings in `unrealircd.conf`. Here’s an example:
 
 ```conf
-loadmodule "nickcollator"; // load the module
+loadmodule "third/nickcollator"; // load the module
 
 nickcollator {
+    collator_strength off;  // set the collator strength <off/primary/secondary/tertiary/quaternary/identical>
     mapping {
-        "Ü, ü, Ue, ue";  // Define mappings here
-        "О, O"           // Cyrillic "O" and Latin "O"
+        "О, O";           // Cyrillic "O" and Latin "O"
         "T, t, Т, т";    // Cyrillic "Т, т" and Latin "T, t"
-        "Л, л, L, l";    // ...
+        "Л, л, L, l";   // ...
     }
 };
 ```
 
 ### How It Works
 
-- **mapping**: This is where you define characters that should be treated as the same. For example, Cyrillic `О` (which looks like Latin `O`) can be mapped to avoid confusion. You can add as many mappings as you need for the characters you want to handle.
+- **mapping**: This is where you define characters that should be treated as the same. For example, Cyrillic `О` (which looks like Latin `O`) can be mapped to avoid confusion. You can add as many mappings as you need for the characters you want to handle. <br/>
+
+- **collator_strength**: This is where you define the strength of the collator or turn it off (direct mapping without the ICU collator). For more information about the different strength settings, see [Comparison Levels](https://unicode-org.github.io/icu/userguide/collation/concepts.html#comparison-levels).
+- **NOTE!** ***NickCollator does not bypass UnrealIRCd's internal nickname collision checks! This means that some collator strength settings might not have the full effect as described in the ICU documentation. Test carefully before using it on a live server!***
 
 ## Testing It Out
 
-After setting it up, NickCollator will block users from choosing nick names based on your mappings. If `Müller` is taken, no one else can use `Mueller` if `ü` is mapped to `ue`, and so on.
+After setting it up, NickCollator will block users from choosing nicknames based on your mappings and/or the collator strength setting.
 
 ## Troubleshooting Tips
 
@@ -70,7 +73,7 @@ This project is under the AGPL Version 3 License. See the [LICENSE](LICENSE) fil
 
 ## Thanks for Using NickCollator!
 
-This module is a simple way to add some extra nick name control across different character sets on UnrealIRCd.
+This module is a simple way to add some extra nickname control across different character sets on UnrealIRCd.
 
 If you know how to improve these module or if you find a bug, feel free to open an issue or submit a pull request. I’m always open to suggestions and learning from others!
 
