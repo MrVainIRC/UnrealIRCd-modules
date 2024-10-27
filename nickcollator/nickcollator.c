@@ -234,8 +234,7 @@ int MODNAME_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
             // Check nested entries in "mapping" directive
             for (cep2 = cep->items; cep2; cep2 = cep2->next) {
                 if (!cep2->name || !strlen(cep2->name)) {
-                    config_error("%s:%i: mapping entry must be non-empty",
-                                 cep2->file->filename, cep2->line_number);
+                    config_error("%s:%i: mapping entry must be non-empty", cep2->file->filename, cep2->line_number);
                     errors++;
                     continue;
                 }
