@@ -17,6 +17,7 @@ Before you dive in, here are a few things to keep in mind:
 Here’s a quick list of the modules you can find here:
 
 - **NickCollator:** Blocks nick names based on your custom character mappings, even across character sets.
+- **wwwstats:** Share statistics through a UNIX socket, providing real-time insights on server activity.
 
 I’ll keep adding more as I work on them!
 
