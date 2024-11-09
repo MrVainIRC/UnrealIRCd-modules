@@ -1,6 +1,6 @@
 # wwwstats Module for UnrealIRCd
 
-**NOTE!** This module is a modified version of [wwwstats](https://github.com/pirc-pl/unrealircd-modules/blob/master/unreal6/wwwstats.c).
+**NOTE!** This module is a modified version of [wwwstats](https://github.com/pirc-pl/unrealircd-modules/blob/master/unreal6/wwwstats.c)
 
 This module enables your UnrealIRCd server to share statistics with a web-based system through a UNIX socket, providing real-time insights on server activity.
 
@@ -93,7 +93,7 @@ You’ll receive a JSON response containing live server data, similar to the exa
 
 ## License
 
-This project is under the GPL Version 3 License. See the [LICENSE](LICENSE) file for details.
+This project is under the AGPL Version 3 License. See the [LICENSE](LICENSE) file for details.
 
 ## Thanks for Using wwwstats!
 
