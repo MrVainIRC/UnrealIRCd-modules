@@ -97,7 +97,7 @@ This project is under the GPL Version 3 License. See the [LICENSE](LICENSE) file
 
 ## Thanks for Using wwwstats!
 
-This module is a simple way to share server statistics on UnrealIRCd. 
+This module is a simple way to share server statistics on UnrealIRCd.
 
 If you have suggestions or spot any issues, feel free to open an issue or submit a pull request. I’m always open to suggestions and learning from others!
 
