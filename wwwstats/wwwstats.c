@@ -19,10 +19,6 @@ module
 				"};";
 				"And /REHASH the IRCd.";
 				"";
-				"If you want a version with MySQL/MariaDB support, look for 'wwwstats-mysql'";
-				"on https://github.com/pirc-pl/unrealircd-modules - unfortunately it can't";
-				"be installed by the module manager.";
-				"Detailed documentation is available on https://github.com/pirc-pl/unrealircd-modules/blob/master/README.md#wwwstats";
         }
 }
 *** <<<MODULE MANAGER END>>>
@@ -35,6 +31,11 @@ module
 #include <sys/un.h>
 #include <time.h>
 #include <stdio.h>
+#include <sys/sysinfo.h>
+#include <sys/statvfs.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 
 #ifndef TOPICLEN
 #define TOPICLEN MAXTOPICLEN
@@ -93,6 +94,108 @@ static void parse_nick_list(const char *nicks_str) {
     }
 
     free(nicks_copy);
+}
+
+void get_cpu_info(double *total_usage, json_t *core_obj) {
+    static unsigned long long prev_total[129] = {0}, prev_idle[129] = {0}; // Index 0 = gesamt, ab 1 = Cores
+    FILE *fp = fopen("/proc/stat", "r");
+    if (!fp) {
+        *total_usage = 0.0;
+        return;
+    }
+
+    char line[256];
+    int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    *total_usage = 0.0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "cpu", 3) != 0 || (!isspace(line[3]) && !isdigit(line[3])))
+            break;
+
+        unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
+        int index;
+
+        if (isspace(line[3])) {
+            // Gesamtzeile "cpu "
+            index = 0;
+            sscanf(line, "cpu %llu %llu %llu %llu %llu %llu %llu %llu",
+                   &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
+        } else {
+            int parsed_core;
+            sscanf(line, "cpu%d %llu %llu %llu %llu %llu %llu %llu %llu",
+                   &parsed_core, &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
+            if (parsed_core >= cpu_count)
+                break;
+            index = parsed_core + 1;
+        }
+
+        unsigned long long idle_time = idle + iowait;
+        unsigned long long total_time = user + nice + system + idle + iowait + irq + softirq + steal;
+
+        unsigned long long delta_idle = idle_time - prev_idle[index];
+        unsigned long long delta_total = total_time - prev_total[index];
+
+        double usage = (delta_total > 0) ? (1.0 - (double)delta_idle / delta_total) * 100.0 : 0.0;
+
+        prev_idle[index] = idle_time;
+        prev_total[index] = total_time;
+
+        if (index == 0) {
+            *total_usage = usage;
+        } else {
+            char key[16];
+            snprintf(key, sizeof(key), "core%d", index - 1);
+            json_object_set_new(core_obj, key, json_real(usage));
+        }
+    }
+
+    fclose(fp);
+}
+
+void get_ram_info(long *total_mb, long *used_mb) {
+    struct sysinfo info;
+    sysinfo(&info);
+    *total_mb = info.totalram / 1024 / 1024;
+    *used_mb = (info.totalram - info.freeram) / 1024 / 1024;
+}
+
+void get_disk_info(long *total_mb, long *free_mb) {
+    struct statvfs stat;
+    if (statvfs("/", &stat) == 0) {
+        *total_mb = (stat.f_blocks * stat.f_frsize) / 1024 / 1024;
+        *free_mb = (stat.f_bfree * stat.f_frsize) / 1024 / 1024;
+    } else {
+        *total_mb = *free_mb = 0;
+    }
+}
+
+void get_ip_addresses(char *ipv4, size_t ipv4_len, char *ipv6, size_t ipv6_len) {
+    struct ifaddrs *ifaddr, *ifa;
+    getifaddrs(&ifaddr);
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || !(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK))
+            continue;
+
+        int family = ifa->ifa_addr->sa_family;
+        void *addr;
+        char ipstr[INET6_ADDRSTRLEN];
+
+        if (family == AF_INET && ipv4[0] == '\0') {
+            addr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+            inet_ntop(family, addr, ipstr, sizeof(ipstr));
+            if (strncmp(ipstr, "192.168.", 8) && strncmp(ipstr, "10.", 3) &&
+                !(strncmp(ipstr, "172.", 4) == 0 && atoi(ipstr + 4) >= 16 && atoi(ipstr + 4) <= 31))
+                strncpy(ipv4, ipstr, ipv4_len);
+        } else if (family == AF_INET6 && ipv6[0] == '\0') {
+            addr = &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
+            inet_ntop(family, addr, ipstr, sizeof(ipstr));
+            if (strncmp(ipstr, "fe80", 4) && strncmp(ipstr, "::1", 3))
+                strncpy(ipv6, ipstr, ipv6_len);
+        }
+
+        if (ipv4[0] && ipv6[0]) break;
+    }
+    freeifaddrs(ifaddr);
 }
 
 int wwwstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
@@ -178,8 +281,8 @@ int wwwstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
 
 ModuleHeader MOD_HEADER = {
     "third/wwwstats",
-    "0.1.0",
-    "Provides data for network stats including configurable nick status via Unix socket",
+    "0.2.0",
+    "Provides detailed server statistics via Unix socket, including server, client, channel, and operator counts, per-nick online status, system metrics (CPU, RAM, disk), host IP addresses and per-core CPU usage.",
     "rocket, k4be, MrVain",
     "unrealircd-6"
 };
@@ -305,6 +408,35 @@ EVENT(wwwstats_socket_evt) {
         json_object_set_new(server_j, "name", json_string_unreal(acptr->name));
         json_object_set_new(server_j, "users", json_integer(acptr->server->users));
         json_object_set_new(server_j, "uptime", json_integer((int)(TStime() - acptr->server->boottime)));
+
+        if (acptr == &me) {
+            long ram_total, ram_used, disk_total, disk_free;
+            char ip4[INET_ADDRSTRLEN] = "", ip6[INET6_ADDRSTRLEN] = "";
+
+            get_ram_info(&ram_total, &ram_used);
+            get_disk_info(&disk_total, &disk_free);
+            get_ip_addresses(ip4, sizeof(ip4), ip6, sizeof(ip6));
+
+            json_object_set_new(server_j, "is_local", json_true());
+            
+            int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+            json_object_set_new(server_j, "cpu_cores", json_integer(cpu_count));
+
+            double cpu_usage_total;
+            json_t *core_usages = json_object();
+            get_cpu_info(&cpu_usage_total, core_usages);
+
+            json_object_set_new(server_j, "cpu_usage_percent", json_real(cpu_usage_total));
+            json_object_set_new(server_j, "cpu_core_usage_percent", core_usages);
+            json_object_set_new(server_j, "ram_total_mb", json_integer(ram_total));
+            json_object_set_new(server_j, "ram_used_mb", json_integer(ram_used));
+            json_object_set_new(server_j, "disk_total_mb", json_integer(disk_total));
+            json_object_set_new(server_j, "disk_free_mb", json_integer(disk_free));
+            json_object_set_new(server_j, "host_ipv4", json_string(ip4));
+            json_object_set_new(server_j, "host_ipv6", json_string(ip6));
+        } else {
+            json_object_set_new(server_j, "is_local", json_false());
+        }
 
         json_array_append_new(servers, server_j);
     }
