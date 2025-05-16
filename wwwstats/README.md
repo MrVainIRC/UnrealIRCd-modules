@@ -7,7 +7,7 @@ This module enables your UnrealIRCd server to share statistics with a web-based 
 - **Web-Friendly Output**: Outputs statistics in JSON format, suitable for generating live channel and server lists, displaying user counts, and more.
 - **Improved Proxy Handling**: Includes an HTTP/1.1 header for easier integration with proxies.
 - **Online Status for Nicknames**: Allows checking the online status of specific nicknames, making it more flexible for use with frontend applications.
-
+- **Host Infos (local only)**: Provides system metrics (CPU, RAM, disk), host IP addresses and per-core CPU usage. 
 ## Requirements
 
 - UnrealIRCd 6
@@ -51,32 +51,62 @@ You’ll receive a JSON response containing live server data, similar to the exa
     "operators": 18,
     "servers": 2,
     "messages": 1459,
-    "nicks"
-    "serv": [{
-        "name": "test1.example.com",
-        "users": 2
-    }],
-    "nicks-status": [{
-        "nick": "nick1",
-        "online": true
-    }, {
-        "nick": "nick2",
-        "online": false
-    }],  
-    "chan": [{
-        "name": "#help",
-        "users": 1,
-        "messages": 0
-    }, {
-        "name": "#services",
-        "users": 8,
-        "messages": 971
-    }, {
-        "name": "#opers",
-        "users": 1,
-        "messages": 0,
-        "topic": "This channel has some topic"
-    }]
+    "nicks_status": [
+        {
+            "nick": "nick1",
+            "online": true
+        },
+        {
+            "nick": "nick2",
+            "online": false
+        }
+    ],
+    "serv": [
+        {
+            "name": "test1.example.com",
+            "users": 2,
+            "uptime": 123456,
+            "is_local": true,
+            "cpu_cores": 4,
+            "cpu_usage_percent": 12.4,
+            "cpu_core_usage_percent": {
+                "core0": 10.1,
+                "core1": 15.2,
+                "core2": 9.7,
+                "core3": 14.5
+            },
+            "ram_total_mb": 7986,
+            "ram_used_mb": 4367,
+            "disk_total_mb": 248832,
+            "disk_free_mb": 102340,
+            "host_ipv4": "203.0.113.5",
+            "host_ipv6": "2001:db8::1234"
+        },
+        {
+            "name": "test2.example.net",
+            "users": 3,
+            "uptime": 98765,
+            "is_local": false
+        }
+    ],
+    "chan": [
+        {
+            "name": "#help",
+            "users": 1,
+            "messages": 0
+        },
+        {
+            "name": "#services",
+            "users": 8,
+            "messages": 971
+        },
+        {
+            "name": "#opers",
+            "users": 1,
+            "messages": 0,
+            "topic": "This channel has some topic"
+        }
+    ]
 }
 ```
 
