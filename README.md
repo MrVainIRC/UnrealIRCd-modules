@@ -18,6 +18,7 @@ Here’s a quick list of the modules you can find here:
 
 - **NickCollator:** Blocks nick names based on your custom character mappings, even across character sets.
 - **wwwstats:** Share statistics through a UNIX socket, providing real-time insights on server activity.
+- **AwayEcho:** Echoes away-notify to the sender as well (if CAP active).
 
 I’ll keep adding more as I work on them!
 
