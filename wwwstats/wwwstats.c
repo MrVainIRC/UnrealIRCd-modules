@@ -420,7 +420,7 @@ EVENT(wwwstats_socket_evt) {
             get_ip_addresses(ip4, sizeof(ip4), ip6, sizeof(ip6));
 
             json_object_set_new(server_j, "is_local", json_true());
-
+            
             int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
             json_object_set_new(server_j, "cpu_cores", json_integer(cpu_count));
 
@@ -440,13 +440,8 @@ EVENT(wwwstats_socket_evt) {
             json_object_set_new(server_j, "is_local", json_false());
         }
 
-        if (IsULine(acptr)) {
-            json_array_append_new(ulines, server_j);
-            uline_count++;
-        } else {
-            json_array_append_new(servers, server_j);
-            server_count++;
-        }
+        json_array_append_new(servers, server_j);
+
     }
 
     json_object_set_new(output, "servers", json_integer(server_count));
