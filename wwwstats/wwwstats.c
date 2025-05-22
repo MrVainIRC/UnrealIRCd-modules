@@ -371,38 +371,40 @@ EVENT(wwwstats_socket_evt) {
     unsigned int hashnum;
     json_t *output = NULL;
     json_t *servers = NULL;
+    json_t *ulines = NULL;
     json_t *channels = NULL;
     json_t *server_j = NULL;
     json_t *channel_j = NULL;
     json_t *nicks_status = NULL;
     char *result;
 
-    if(!socket_hpath) return;
+    if (!socket_hpath) return;
 
     sock = accept(stats_socket, (struct sockaddr*) &cli_addr, &slen);
-
     slen = sizeof(cli_addr);
 
-    if(sock < 0) {
-        if(errno == EWOULDBLOCK || errno == EAGAIN) return;
+    if (sock < 0) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN) return;
         unreal_log(ULOG_ERROR, "wwwstats", "WWWSTATS_ACCEPT_ERROR", NULL, "Socket accept error: $error", log_data_string("error", strerror(errno)));
         return;
     }
 
     output = json_object();
     servers = json_array();
+    ulines = json_array();
     channels = json_array();
     nicks_status = json_array();
+
+    int server_count = 0;
+    int uline_count = 0;
 
     json_object_set_new(output, "clients", json_integer(irccounts.clients));
     json_object_set_new(output, "channels", json_integer(irccounts.channels));
     json_object_set_new(output, "operators", json_integer(irccounts.operators));
-    json_object_set_new(output, "servers", json_integer(irccounts.servers));
     json_object_set_new(output, "messages", json_integer(counter));
 
     list_for_each_entry(acptr, &global_server_list, client_node) {
-        if (IsULine(acptr) && HIDE_ULINES)
-            continue;
+        if (!acptr->server) continue;
 
         server_j = json_object();
         json_object_set_new(server_j, "name", json_string_unreal(acptr->name));
@@ -439,34 +441,39 @@ EVENT(wwwstats_socket_evt) {
         }
 
         json_array_append_new(servers, server_j);
+
     }
+
+    json_object_set_new(output, "servers", json_integer(server_count));
+    json_object_set_new(output, "ulines_count", json_integer(uline_count));
     json_object_set_new(output, "serv", servers);
+    json_object_set_new(output, "ulines", ulines);
 
     if (num_nicks > 0) {
-        for(int i = 0; i < num_nicks; i++) {
+        for (int i = 0; i < num_nicks; i++) {
             Client *nick = find_user(selected_nicks[i], NULL);
             json_t *nick_status = json_object();
             json_object_set_new(nick_status, "nick", json_string(selected_nicks[i]));
             json_object_set_new(nick_status, "online", nick ? json_true() : json_false());
-
             json_array_append_new(nicks_status, nick_status);
         }
     }
     json_object_set_new(output, "nicks_status", nicks_status);
 
-    for(hashnum = 0; hashnum < CHAN_HASH_TABLE_SIZE; hashnum++) {
-        for(channel = hash_get_chan_bucket(hashnum); channel; channel = channel->hnextch) {
-            if(!PubChannel(channel)) continue;
+    for (hashnum = 0; hashnum < CHAN_HASH_TABLE_SIZE; hashnum++) {
+        for (channel = hash_get_chan_bucket(hashnum); channel; channel = channel->hnextch) {
+            if (!PubChannel(channel)) continue;
             channel_j = json_object();
             json_object_set_new(channel_j, "name", json_string_unreal(channel->name));
             json_object_set_new(channel_j, "users", json_integer(channel->users));
             json_object_set_new(channel_j, "messages", json_integer(CHANNEL_MESSAGE_COUNT(channel)));
-            if(channel->topic)
+            if (channel->topic)
                 json_object_set_new(channel_j, "topic", json_string_unreal(channel->topic));
             json_array_append_new(channels, channel_j);
         }
     }
     json_object_set_new(output, "chan", channels);
+
     result = json_dumps(output, JSON_COMPACT);
 
     char http_header[512];
