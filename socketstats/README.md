@@ -1,4 +1,4 @@
-# wwwstats Module for UnrealIRCd
+# socketstats Module for UnrealIRCd
 
 **NOTE!** This module is a modified version of [wwwstats](https://github.com/pirc-pl/unrealircd-modules/blob/master/unreal6/wwwstats.c).
 
@@ -21,13 +21,13 @@ This module enables your UnrealIRCd server to share statistics with a web-based 
 
 ## Configuration
 
-Once wwwstats is installed, set it up in your `unrealircd.conf`. Here’s an example:
+Once socketstats is installed, set it up in your `unrealircd.conf`. Here’s an example:
 
 ```conf
-loadmodule "third/wwwstats";
+loadmodule "third/socketstats";
 
-wwwstats {
-    socket-path "/tmp/wwwstats.sock";
+socketstats {
+    socket-path "/tmp/socketstats.sock";
     nicks "nick1, nick2, nick3"
 };
 ```
@@ -41,7 +41,7 @@ wwwstats {
 
 After configuration, you can test the socket output with the following shell command:
 ```
-socat - UNIX-CONNECT:/tmp/wwwstats.sock
+socat - UNIX-CONNECT:/tmp/socketstats.sock
 ```
 You’ll receive a JSON response containing live server data, similar to the example below.
 ```json
@@ -125,7 +125,7 @@ You’ll receive a JSON response containing live server data, similar to the exa
 
 This project is under the GPL Version 3 License. See the [LICENSE](LICENSE) file for details.
 
-## Thanks for Using wwwstats!
+## Thanks for Using socketstats!
 
 This module is a simple way to share server statistics on UnrealIRCd.
 

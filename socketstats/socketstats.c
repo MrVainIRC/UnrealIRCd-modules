@@ -12,10 +12,11 @@ module
         min-unrealircd-version "6.*";
         post-install-text {
                 "The module is installed. Now you need to add a loadmodule line:";
-                "loadmodule \"third/wwwstats\";";
+                "loadmodule \"third/socketstats\";";
                 "then create a valid configuration block as in the example below:";
-                "wwwstats {";
-				" socket-path \"/tmp/wwwstats.sock\"; // this option is REQUIRED";
+                "socketstats {";
+				"   socket-path \"/tmp/socketstats.sock\"; // this option is REQUIRED";
+                "   nicks \"test1,test2\";"
 				"};";
 				"And /REHASH the IRCd.";
 				"";
@@ -24,7 +25,7 @@ module
 *** <<<MODULE MANAGER END>>>
 */
 
-#define MYCONF "wwwstats"
+#define MYCONF "socketstats"
 
 #include "unrealircd.h"
 #include <sys/socket.h>
@@ -57,14 +58,14 @@ char send_buf[4096];
 struct sockaddr_un stats_addr;
 ModDataInfo *message_count_md;
 
-int wwwstats_msg(Client *sptr, Channel *chptr, MessageTag **mtags, const char *msg, MESSAGE_SENDTYPE sendtype);
+int socketstats_msg(Client *sptr, Channel *chptr, MessageTag **mtags, const char *msg, MESSAGE_SENDTYPE sendtype);
 
-EVENT(wwwstats_socket_evt);
+EVENT(socketstats_socket_evt);
 char *json_escape(char *d, const char *a);
 void md_free(ModData *md);
-int wwwstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs);
-int wwwstats_configposttest(int *errs);
-int wwwstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type);
+int socketstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs);
+int socketstats_configposttest(int *errs);
+int socketstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type);
 
 // config file stuff
 static char *socket_path;
@@ -97,7 +98,7 @@ static void parse_nick_list(const char *nicks_str) {
 }
 
 void get_cpu_info(double *total_usage, json_t *core_obj) {
-    static unsigned long long prev_total[129] = {0}, prev_idle[129] = {0}; // Index 0 = gesamt, ab 1 = Cores
+    static unsigned long long prev_total[129] = {0}, prev_idle[129] = {0}; 
     FILE *fp = fopen("/proc/stat", "r");
     if (!fp) {
         *total_usage = 0.0;
@@ -116,7 +117,6 @@ void get_cpu_info(double *total_usage, json_t *core_obj) {
         int index;
 
         if (isspace(line[3])) {
-            // Gesamtzeile "cpu "
             index = 0;
             sscanf(line, "cpu %llu %llu %llu %llu %llu %llu %llu %llu",
                    &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
@@ -198,7 +198,7 @@ void get_ip_addresses(char *ipv4, size_t ipv4_len, char *ipv6, size_t ipv6_len) 
     freeifaddrs(ifaddr);
 }
 
-int wwwstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
+int socketstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
     ConfigEntry *cep;
     int errors = 0;
 
@@ -245,17 +245,17 @@ int wwwstats_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
     return errors ? -1 : 1;
 }
 
-int wwwstats_configposttest(int *errs) {
+int socketstats_configposttest(int *errs) {
     if(!socket_hpath){
-        config_warn("[wwwstats] warning: socket path not specified! Socket won't be created. This module will not be useful.");
+        config_warn("[socketstats] warning: socket path not specified! Socket won't be created. This module will not be useful.");
     }
     if(num_nicks == 0) {
-        config_warn("[wwwstats] warning: no nicks specified! No nick status will be checked.");
+        config_warn("[socketstats] warning: no nicks specified! No nick status will be checked.");
     }
     return 1;
 }
 
-int wwwstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
+int socketstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
     ConfigEntry *cep;
 
     if(type != CONFIG_MAIN)
@@ -280,8 +280,8 @@ int wwwstats_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
 }
 
 ModuleHeader MOD_HEADER = {
-    "third/wwwstats",
-    "0.2.0",
+    "third/socketstats",
+    "0.3.0",
     "Provides detailed server statistics via Unix socket, including server, client, channel, and operator counts, per-nick online status, system metrics (CPU, RAM, disk), host IP addresses and per-core CPU usage.",
     "rocket, k4be, MrVain",
     "unrealircd-6"
@@ -289,15 +289,15 @@ ModuleHeader MOD_HEADER = {
 
 MOD_TEST() {
     socket_hpath = 0;
-    HookAdd(modinfo->handle, HOOKTYPE_CONFIGTEST, 0, wwwstats_configtest);
-    HookAdd(modinfo->handle, HOOKTYPE_CONFIGPOSTTEST, 0, wwwstats_configposttest);
+    HookAdd(modinfo->handle, HOOKTYPE_CONFIGTEST, 0, socketstats_configtest);
+    HookAdd(modinfo->handle, HOOKTYPE_CONFIGPOSTTEST, 0, socketstats_configposttest);
     return MOD_SUCCESS;
 }
 
 MOD_INIT() {
     ModDataInfo mreq;
-    HookAdd(modinfo->handle, HOOKTYPE_CONFIGRUN, 0, wwwstats_configrun);
-    HookAdd(modinfo->handle, HOOKTYPE_PRE_CHANMSG, 0, wwwstats_msg);
+    HookAdd(modinfo->handle, HOOKTYPE_CONFIGRUN, 0, socketstats_configrun);
+    HookAdd(modinfo->handle, HOOKTYPE_PRE_CHANMSG, 0, socketstats_msg);
 
     memset(&mreq, 0, sizeof(mreq));
     mreq.type = MODDATATYPE_CHANNEL;
@@ -329,7 +329,7 @@ MOD_LOAD() {
         fcntl(stats_socket, F_SETFL, O_NONBLOCK);
     }
 
-    EventAdd(modinfo->handle, "wwwstats_socket", wwwstats_socket_evt, NULL, 100, 0);
+    EventAdd(modinfo->handle, "socketstats_socket", socketstats_socket_evt, NULL, 100, 0);
 
     return MOD_SUCCESS;
 }
@@ -354,13 +354,13 @@ void md_free(ModData *md) {
     md->i = 0;
 }
 
-int wwwstats_msg(Client *sptr, Channel *chptr, MessageTag **mtags, const char *msg, MESSAGE_SENDTYPE sendtype) {
+int socketstats_msg(Client *sptr, Channel *chptr, MessageTag **mtags, const char *msg, MESSAGE_SENDTYPE sendtype) {
     counter++;
     CHANNEL_MESSAGE_COUNT(chptr)++;
     return HOOK_CONTINUE;
 }
 
-EVENT(wwwstats_socket_evt) {
+EVENT(socketstats_socket_evt) {
     char topic[6*TOPICLEN+1];
     char name[6*CHANNELLEN+1];
     int sock;
@@ -371,7 +371,6 @@ EVENT(wwwstats_socket_evt) {
     unsigned int hashnum;
     json_t *output = NULL;
     json_t *servers = NULL;
-    json_t *ulines = NULL;
     json_t *channels = NULL;
     json_t *server_j = NULL;
     json_t *channel_j = NULL;
@@ -385,18 +384,16 @@ EVENT(wwwstats_socket_evt) {
 
     if (sock < 0) {
         if (errno == EWOULDBLOCK || errno == EAGAIN) return;
-        unreal_log(ULOG_ERROR, "wwwstats", "WWWSTATS_ACCEPT_ERROR", NULL, "Socket accept error: $error", log_data_string("error", strerror(errno)));
+        unreal_log(ULOG_ERROR, "socketstats", "SOCKETSTATS_ACCEPT_ERROR", NULL, "Socket accept error: $error", log_data_string("error", strerror(errno)));
         return;
     }
 
     output = json_object();
     servers = json_array();
-    ulines = json_array();
     channels = json_array();
     nicks_status = json_array();
 
     int server_count = 0;
-    int uline_count = 0;
 
     json_object_set_new(output, "clients", json_integer(irccounts.clients));
     json_object_set_new(output, "channels", json_integer(irccounts.channels));
@@ -406,10 +403,13 @@ EVENT(wwwstats_socket_evt) {
     list_for_each_entry(acptr, &global_server_list, client_node) {
         if (!acptr->server) continue;
 
+        server_count++;
+
         server_j = json_object();
         json_object_set_new(server_j, "name", json_string_unreal(acptr->name));
         json_object_set_new(server_j, "users", json_integer(acptr->server->users));
         json_object_set_new(server_j, "uptime", json_integer((int)(TStime() - acptr->server->boottime)));
+        json_object_set_new(server_j, "is_uline", IsULine(acptr) ? json_true() : json_false());
 
         if (acptr == &me) {
             long ram_total, ram_used, disk_total, disk_free;
@@ -441,13 +441,10 @@ EVENT(wwwstats_socket_evt) {
         }
 
         json_array_append_new(servers, server_j);
-
     }
 
     json_object_set_new(output, "servers", json_integer(server_count));
-    json_object_set_new(output, "ulines_count", json_integer(uline_count));
     json_object_set_new(output, "serv", servers);
-    json_object_set_new(output, "ulines", ulines);
 
     if (num_nicks > 0) {
         for (int i = 0; i < num_nicks; i++) {
