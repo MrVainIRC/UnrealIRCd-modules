@@ -15,11 +15,11 @@ module
                 "loadmodule \"third/socketstats\";";
                 "then create a valid configuration block as in the example below:";
                 "socketstats {";
-				"   socket-path \"/tmp/socketstats.sock\"; // this option is REQUIRED";
+		"   socket-path \"/tmp/socketstats.sock\"; // this option is REQUIRED";
                 "   nicks \"test1,test2\";"
-				"};";
-				"And /REHASH the IRCd.";
-				"";
+		"};";
+		"And /REHASH the IRCd.";
+		"";
         }
 }
 *** <<<MODULE MANAGER END>>>
