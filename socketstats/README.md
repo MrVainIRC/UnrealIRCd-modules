@@ -28,14 +28,28 @@ loadmodule "third/socketstats";
 
 socketstats {
     socket-path "/tmp/socketstats.sock";
-    nicks "nick1, nick2, nick3"
+    nicks "nick1, nick2, nick3";
+    stream dynamic;
+    stream-interval 5;
 };
 ```
 
 ### How It Works
 
-- **socket-path**: Required option to specify where the UNIX socket will be created.
-- **nicks**: Allows querying the online status of specific nicknames
+- **`socket-path`** (required)  
+  Defines the path where the UNIX domain socket will be created and listened on.
+
+- **`nicks`** (optional)  
+  A comma-separated list of nicknames whose online status will be included in the JSON output.
+
+- **`stream`** (optional)  
+  Controls whether clients can use HTTP streaming:
+  - `true`: Always stream data to clients.
+  - `false`: Only single-response mode is allowed.
+  - `dynamic`: *(Default)* Clients can choose via the HTTP header `X-Once: true`.
+
+- **`stream-interval`** (optional, default: `10`)  
+  Sets how often (in seconds) the JSON stats are pushed to connected streaming clients.
 
 ## Testing It Out
 
@@ -66,6 +80,7 @@ You’ll receive a JSON response containing live server data, similar to the exa
             "name": "test1.example.com",
             "users": 2,
             "uptime": 123456,
+            "is_uline": false,
             "is_local": true,
             "cpu_cores": 4,
             "cpu_usage_percent": 12.4,
@@ -86,6 +101,7 @@ You’ll receive a JSON response containing live server data, similar to the exa
             "name": "test2.example.net",
             "users": 3,
             "uptime": 98765,
+            "is_uline": true,
             "is_local": false
         }
     ],
