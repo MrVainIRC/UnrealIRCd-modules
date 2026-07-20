@@ -55,6 +55,20 @@ MOD_UNLOAD() {
 
 int my_away_hook(Client *client, MessageTag *mtags, const char *reason, int already_as_away)
 {
+	/*
+	 * HOOKTYPE_AWAY is also invoked for remote users when their AWAY
+	 * state is propagated through the IRC network.
+	 *
+	 * Only the server to which the user is directly connected may
+	 * generate the echo.
+	 */
+	if (!MyUser(client))
+		return 0;
+		
+	/*
+	 * Only echo the status change when the local client negotiated
+	 * the IRCv3 away-notify capability.
+	 */ 
 	if (!HasCapability(client, "away-notify"))
 		return 0;
 
