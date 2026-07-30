@@ -108,4 +108,12 @@ This makes the module suitable for networks where only some servers understand m
 
 ## License
 
-This module follows the license terms of the original module and the UnrealIRCd module ecosystem. Check the source header and your UnrealIRCd distribution license before redistribution.
+This project is under the GPL Version 3 License. See the [LICENSE](LICENSE) file for details.
+
+## Thanks for Using socketstats!
+
+This module is a simple way to share server statistics on UnrealIRCd.
+
+If you have suggestions or spot any issues, feel free to open an issue or submit a pull request. I’m always open to suggestions and learning from others!
+
+I’m just a beginner in programming, and these module are a work in progress. So, use them at your own risk! I try to make sure everything works, but if something goes wrong, I can’t take responsibility for it. Make backups and test in a safe environment first!
