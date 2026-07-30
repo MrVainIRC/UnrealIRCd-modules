@@ -110,7 +110,7 @@ This makes the module suitable for networks where only some servers understand m
 
 This project is under the GPL Version 3 License. See the [LICENSE](LICENSE) file for details.
 
-## Thanks for Using socketstats!
+## Thanks for Using metadata-2-local
 
 This module is a simple way to share server statistics on UnrealIRCd.
 
