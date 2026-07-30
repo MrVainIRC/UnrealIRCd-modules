@@ -132,21 +132,6 @@ struct metadata_moddata_user {
 	struct metadata_unsynced *us;
 };
 
-struct metadata_offline_user {
-	char *nick;
-	char *account;
-	time_t last_seen;
-	struct metadata *metadata;
-	struct metadata_offline_user *next;
-};
-
-struct metadata_pending_restore {
-	Client *client;
-	char *nick;
-	time_t due;
-	struct metadata_pending_restore *next;
-};
-
 struct metadata_unsynced { /* we're listing users (UIDs) or channels that should be synced but were not */
 	char *id;
 	char *key;
@@ -159,40 +144,25 @@ struct metadata_monitor_s {
 	const char *value;
 };
 
+struct metadata_capable_server {
+	char *name;
+	struct metadata_capable_server *next;
+};
+
 CMD_FUNC(cmd_metadata);
 CMD_FUNC(cmd_metadata_remote);
 CMD_FUNC(cmd_metadata_local);
 EVENT(metadata_queue_evt);
-EVENT(metadata_retention_evt);
-EVENT(metadata_restore_delay_evt);
 const char *metadata_cap_param(Client *client);
 int metadata_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs);
 int metadata_configposttest(int *errs);
 int metadata_configrun(ConfigFile *cf, ConfigEntry *ce, int type);
-int metadata_server_sync(Client *client);
 int metadata_join(Client *client, Channel *channel, MessageTag *mtags);
-int metadata_user_registered(Client *client);
-int metadata_account_login(Client *client, MessageTag *mtags);
-int metadata_local_quit(Client *client, MessageTag *mtags, const char *comment);
-int metadata_local_nickchange(Client *client, MessageTag *mtags, const char *oldnick);
 void metadata_user_free(ModData *md);
 void metadata_channel_free(ModData *md);
 void metadata_free(struct metadata *metadata);
 void metadata_free_subs(struct metadata_subscriptions *subs);
-struct metadata *metadata_clone_list(struct metadata *metadata);
-void metadata_store_offline_user(Client *client);
-void metadata_restore_offline_user(Client *client);
-void metadata_send_own_metadata_burst(Client *client);
-void metadata_schedule_nick_restore(Client *client);
-void metadata_remove_pending_restore(Client *client);
-int metadata_has_pending_restore(Client *client);
-void metadata_process_pending_restores(void);
-void metadata_remove_offline_user(const char *nick);
-void metadata_remove_offline_user_nick(const char *nick);
-void metadata_remove_offline_user_account(const char *account);
-long metadata_parse_duration(const char *value);
 int metadata_parse_int_range(const char *value, int min, int max, int *out);
-int metadata_is_account_registered(Client *client);
 int metadata_is_subscribed(Client *user, const char *key);
 const char *metadata_get_user_key_value(Client *user, const char *key);
 const char *metadata_get_channel_key_value(Channel *channel, const char *key);
@@ -219,6 +189,10 @@ void metadata_send_change(Client *client, MessageTag *mtags, const char *who, co
 int metadata_notify_or_queue(Client *client, MessageTag *mtags, Client *who, Channel *chan, const char *key, const char *value, Client *changer);
 void metadata_notify_monitored(Client *client, Client *monitored, Client *changer, const char *key, const char *value);
 int metadata_is_monitoring(Client *watcher, Client *watched);
+void metadata_mark_server_capable(Client *server);
+int metadata_server_capable(Client *server);
+void metadata_send_to_capable_servers(const char *target, const char *key, const char *value, Client *changer);
+void metadata_free_capable_servers(void);
 
 #if UNREAL_VERSION_TIME < 202346
 int metadata_monitor_connect(Client *client);
@@ -238,18 +212,14 @@ ModDataInfo *metadataUser;
 ModDataInfo *metadataChannel;
 long CAP_METADATA = 0L;
 long CAP_METADATA_NOTIFY = 0L;
+struct metadata_capable_server *metadata_capable_servers = NULL;
 
 struct metadata_settings_s {
 	int max_user_metadata;
 	int max_channel_metadata;
 	int max_subscriptions;
 	int max_value_bytes;
-	long hold_time;
-	long restore_delay;
-} metadata_settings = { -1, -1, -1, -1, -1, -1 };
-
-struct metadata_offline_user *metadata_offline_users = NULL;
-struct metadata_pending_restore *metadata_pending_restores = NULL;
+} metadata_settings = { -1, -1, -1, -1 };
 
 ModuleHeader MOD_HEADER = {
 	"third/metadata-2-local",
@@ -260,16 +230,14 @@ ModuleHeader MOD_HEADER = {
 };
 
 /*
-Do not load this module together with metadata-3-local: both register METADATA.
+Do not load this module together with with other `METADATA` modules: both register METADATA.
 
-metadata {
-	max-user-metadata 10;
-	max-channel-metadata 10;
-	max-subscriptions 10;
-	max-value-bytes 300;
-	hold-time 10d; // 0 = delete nick metadata on local disconnect
-	restore-delay 30s; // delay nick-based restore for unregistered users
-};
+	metadata {
+		max-user-metadata 10;
+		max-channel-metadata 10;
+		max-subscriptions 10;
+		max-value-bytes 300;
+	};
 */
 
 int metadata_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
@@ -343,28 +311,8 @@ int metadata_configtest(ConfigFile *cf, ConfigEntry *ce, int type, int *errs) {
 			continue;
 		}
 
-		if (!strcmp(cep->name, "hold-time"))
-		{
-			if (metadata_parse_duration(cep->value) < 0)
-			{
-				config_error("%s:%i: %s::%s must be a non-negative duration like 0, 30m, 12h or 10d", cep->file->filename, cep->line_number, MYCONF, cep->name);
-				errors++;
-			}
-			continue;
+			config_warn("%s:%i: unknown item %s::%s", cep->file->filename, cep->line_number, MYCONF, cep->name);
 		}
-
-		if (!strcmp(cep->name, "restore-delay"))
-		{
-			if (metadata_parse_duration(cep->value) < 0)
-			{
-				config_error("%s:%i: %s::%s must be a non-negative duration like 0, 30s or 2m", cep->file->filename, cep->line_number, MYCONF, cep->name);
-				errors++;
-			}
-			continue;
-		}
-
-		config_warn("%s:%i: unknown item %s::%s", cep->file->filename, cep->line_number, MYCONF, cep->name);
-	}
 	
 	*errs = errors;
 	return errors ? -1 : 1;
@@ -376,8 +324,6 @@ int metadata_configposttest(int *errs) {
 	metadata_settings.max_channel_metadata = -1;
 	metadata_settings.max_subscriptions = -1;
 	metadata_settings.max_value_bytes = -1;
-	metadata_settings.hold_time = -1;
-	metadata_settings.restore_delay = -1;
 	return 1;
 }
 
@@ -422,17 +368,6 @@ int metadata_configrun(ConfigFile *cf, ConfigEntry *ce, int type) {
 			continue;
 		}
 
-		if (!strcmp(cep->name, "hold-time"))
-		{
-			metadata_settings.hold_time = metadata_parse_duration(cep->value);
-			continue;
-		}
-
-		if (!strcmp(cep->name, "restore-delay"))
-		{
-			metadata_settings.restore_delay = metadata_parse_duration(cep->value);
-			continue;
-		}
 	}
 	return 1;
 }
@@ -483,13 +418,9 @@ MOD_INIT() {
 		config_error("[%s] Failed to request metadata_channel moddata: %s", MOD_HEADER.name, ModuleGetErrorStr(modinfo->handle));
 		return MOD_FAILED;
 	}
-	
+		
 	HookAdd(modinfo->handle, HOOKTYPE_LOCAL_JOIN, -2, metadata_join);
 	HookAdd(modinfo->handle, HOOKTYPE_REMOTE_JOIN, -2, metadata_join);
-	HookAdd(modinfo->handle, HOOKTYPE_LOCAL_CONNECT, 0, metadata_user_registered);
-	HookAdd(modinfo->handle, HOOKTYPE_ACCOUNT_LOGIN, 0, metadata_account_login);
-	HookAdd(modinfo->handle, HOOKTYPE_LOCAL_QUIT, 0, metadata_local_quit);
-	HookAdd(modinfo->handle, HOOKTYPE_POST_LOCAL_NICKCHANGE, 0, metadata_local_nickchange);
 #if UNREAL_VERSION_TIME < 202346
 	HookAdd(modinfo->handle, HOOKTYPE_LOCAL_CONNECT, 0, metadata_monitor_connect);
 	HookAdd(modinfo->handle, HOOKTYPE_REMOTE_CONNECT, 0, metadata_monitor_connect);
@@ -515,22 +446,13 @@ MOD_LOAD() {
 		metadata_settings.max_subscriptions = 10;
 	if (metadata_settings.max_value_bytes < 0)
 		metadata_settings.max_value_bytes = 300;
-	if (metadata_settings.hold_time < 0)
-		metadata_settings.hold_time = 10 * 24 * 60 * 60;
-	if (metadata_settings.restore_delay < 0)
-		metadata_settings.restore_delay = 30;
 
 	EventAdd(modinfo->handle, "metadata_queue", metadata_queue_evt, NULL, 1500, 0);
-	EventAdd(modinfo->handle, "metadata_retention", metadata_retention_evt, NULL, 60000, 0);
-	EventAdd(modinfo->handle, "metadata_restore_delay", metadata_restore_delay_evt, NULL, 5000, 0);
 	return MOD_SUCCESS;
 }
 
 MOD_UNLOAD() {
-	while (metadata_offline_users)
-		metadata_remove_offline_user(metadata_offline_users->nick);
-	while (metadata_pending_restores)
-		metadata_remove_pending_restore(metadata_pending_restores->client);
+	metadata_free_capable_servers();
 	return MOD_SUCCESS;
 }
 
@@ -540,44 +462,6 @@ const char *metadata_cap_param(Client *client)
 	ircsnprintf(buf, sizeof(buf), "before-connect,max-subs=%d,max-keys=%d,max-value-bytes=%d",
 		metadata_settings.max_subscriptions, metadata_settings.max_user_metadata, metadata_settings.max_value_bytes);
 	return buf;
-}
-
-long metadata_parse_duration(const char *value)
-{
-	char *end = NULL;
-	long number;
-	long multiplier = 1;
-
-	if (!value || !*value)
-		return -1;
-	number = strtol(value, &end, 10);
-	if (end == value || number < 0)
-		return -1;
-	if (!*end)
-		return number;
-	if (end[1])
-		return -1;
-	switch (*end)
-	{
-		case 's':
-			multiplier = 1;
-			break;
-		case 'm':
-			multiplier = 60;
-			break;
-		case 'h':
-			multiplier = 60 * 60;
-			break;
-		case 'd':
-			multiplier = 24 * 60 * 60;
-			break;
-		case 'w':
-			multiplier = 7 * 24 * 60 * 60;
-			break;
-		default:
-			return -1;
-	}
-	return number * multiplier;
 }
 
 int metadata_parse_int_range(const char *value, int min, int max, int *out)
@@ -598,15 +482,63 @@ int metadata_parse_int_range(const char *value, int min, int max, int *out)
 	return 1;
 }
 
-int metadata_is_account_registered(Client *client)
+void metadata_mark_server_capable(Client *server)
 {
-	if (!client || !IsUser(client) || !client->user)
+	struct metadata_capable_server *entry;
+
+	if (!server || !IsServer(server) || BadPtr(server->name))
+		return;
+	for (entry = metadata_capable_servers; entry; entry = entry->next)
+		if (!strcasecmp(entry->name, server->name))
+			return;
+	entry = safe_alloc(sizeof(struct metadata_capable_server));
+	entry->name = strdup(server->name);
+	entry->next = metadata_capable_servers;
+	metadata_capable_servers = entry;
+}
+
+int metadata_server_capable(Client *server)
+{
+	struct metadata_capable_server *entry;
+
+	if (!server || !IsServer(server) || BadPtr(server->name))
 		return 0;
-	if (BadPtr(client->user->account))
-		return 0;
-	if (!strcmp(client->user->account, "0"))
-		return 0;
-	return 1;
+	for (entry = metadata_capable_servers; entry; entry = entry->next)
+		if (!strcasecmp(entry->name, server->name))
+			return 1;
+	return 0;
+}
+
+void metadata_send_to_capable_servers(const char *target, const char *key, const char *value, Client *changer)
+{
+	Client *server;
+	const char *sender_id;
+
+	if (BadPtr(target) || BadPtr(key))
+		return;
+	sender_id = (changer && changer != &me) ? changer->id : me.id;
+	list_for_each_entry(server, &client_list, client_node)
+	{
+		if (!IsServer(server) || !metadata_server_capable(server))
+			continue;
+		if (changer && IsServer(changer) && !strcasecmp(server->name, changer->name))
+			continue;
+		sendto_one(server, NULL, ":%s METADATA %s %s * :%s", sender_id, target, key, value ? value : "");
+	}
+}
+
+void metadata_free_capable_servers(void)
+{
+	struct metadata_capable_server *entry;
+	struct metadata_capable_server *next;
+
+	for (entry = metadata_capable_servers; entry; entry = next)
+	{
+		next = entry->next;
+		safe_free(entry->name);
+		safe_free(entry);
+	}
+	metadata_capable_servers = NULL;
 }
 
 void metadata_free(struct metadata *metadata)
@@ -614,266 +546,6 @@ void metadata_free(struct metadata *metadata)
 	safe_free(metadata->name);
 	safe_free(metadata->value);
 	safe_free(metadata);
-}
-
-struct metadata *metadata_clone_list(struct metadata *metadata)
-{
-	struct metadata *head = NULL;
-	struct metadata **tail = &head;
-
-	for (; metadata; metadata = metadata->next)
-	{
-		*tail = safe_alloc(sizeof(struct metadata));
-		(*tail)->name = strdup(metadata->name);
-		(*tail)->value = metadata->value ? strdup(metadata->value) : NULL;
-		(*tail)->next = NULL;
-		tail = &(*tail)->next;
-	}
-	return head;
-}
-
-void metadata_remove_offline_user(const char *nick)
-{
-	struct metadata_offline_user **offline = &metadata_offline_users;
-	struct metadata_offline_user *old;
-
-	if (!nick || !*nick)
-		return;
-	while (*offline)
-	{
-		if (!strcasecmp((*offline)->nick, nick))
-		{
-			old = *offline;
-			*offline = old->next;
-			metadata_free_list(old->metadata, NULL, NULL, NULL);
-			safe_free(old->nick);
-			safe_free(old->account);
-			safe_free(old);
-			return;
-		}
-		offline = &(*offline)->next;
-	}
-}
-
-void metadata_remove_offline_user_nick(const char *nick)
-{
-	struct metadata_offline_user **offline = &metadata_offline_users;
-	struct metadata_offline_user *old;
-
-	if (!nick || !*nick)
-		return;
-	while (*offline)
-	{
-		if (!(*offline)->account && !strcasecmp((*offline)->nick, nick))
-		{
-			old = *offline;
-			*offline = old->next;
-			metadata_free_list(old->metadata, NULL, NULL, NULL);
-			safe_free(old->nick);
-			safe_free(old->account);
-			safe_free(old);
-			return;
-		}
-		offline = &(*offline)->next;
-	}
-}
-
-void metadata_remove_offline_user_account(const char *account)
-{
-	struct metadata_offline_user **offline = &metadata_offline_users;
-	struct metadata_offline_user *old;
-
-	if (!account || !*account)
-		return;
-	while (*offline)
-	{
-		if ((*offline)->account && !strcasecmp((*offline)->account, account))
-		{
-			old = *offline;
-			*offline = old->next;
-			metadata_free_list(old->metadata, NULL, NULL, NULL);
-			safe_free(old->nick);
-			safe_free(old->account);
-			safe_free(old);
-			return;
-		}
-		offline = &(*offline)->next;
-	}
-}
-
-void metadata_store_offline_user(Client *client)
-{
-	struct metadata_moddata_user *moddata;
-	struct metadata_offline_user *offline;
-	int account_registered;
-
-	if (!MyUser(client))
-		return;
-	account_registered = metadata_is_account_registered(client);
-	if (metadata_settings.hold_time <= 0)
-	{
-		if (account_registered)
-			metadata_remove_offline_user_account(client->user->account);
-		else
-			metadata_remove_offline_user_nick(client->name);
-		return;
-	}
-	moddata = USER_METADATA(client);
-	if (!moddata || !moddata->metadata)
-	{
-		if (account_registered)
-			metadata_remove_offline_user_account(client->user->account);
-		else
-			metadata_remove_offline_user_nick(client->name);
-		return;
-	}
-	if (account_registered)
-		metadata_remove_offline_user_account(client->user->account);
-	else
-		metadata_remove_offline_user_nick(client->name);
-	offline = safe_alloc(sizeof(struct metadata_offline_user));
-	offline->nick = strdup(client->name);
-	offline->account = account_registered ? strdup(client->user->account) : NULL;
-	offline->last_seen = TStime();
-	offline->metadata = metadata_clone_list(moddata->metadata);
-	offline->next = metadata_offline_users;
-	metadata_offline_users = offline;
-}
-
-void metadata_restore_offline_user(Client *client)
-{
-	struct metadata_offline_user **offline = &metadata_offline_users;
-	struct metadata_offline_user *found;
-	struct metadata_moddata_user *moddata;
-	int account_registered;
-
-	if (!MyUser(client) || metadata_settings.hold_time <= 0)
-		return;
-	account_registered = metadata_is_account_registered(client);
-	while (*offline)
-	{
-		if ((account_registered && (*offline)->account && !strcasecmp((*offline)->account, client->user->account)) ||
-		    (!account_registered && !(*offline)->account && !strcasecmp((*offline)->nick, client->name)))
-		{
-			found = *offline;
-			*offline = found->next;
-			moddata = USER_METADATA(client);
-			if (!moddata)
-				moddata = metadata_prepare_user_moddata(client);
-			metadata_free_list(moddata->metadata, NULL, NULL, NULL);
-			moddata->metadata = found->metadata;
-			found->metadata = NULL;
-			safe_free(found->nick);
-			safe_free(found->account);
-			safe_free(found);
-			return;
-		}
-		offline = &(*offline)->next;
-	}
-}
-
-void metadata_send_own_metadata_burst(Client *client)
-{
-	struct metadata *metadata;
-	struct metadata_moddata_user *moddata = USER_METADATA(client);
-
-	if (!MyUser(client) || !HasCapabilityFast(client, CAP_METADATA))
-		return;
-
-	{
-		char batch[BATCHLEN+1] = "";
-		MessageTag *mtags = NULL;
-		labeled_response_inhibit = 1;
-		MAKE_BATCH(client, batch, mtags, client->name);
-		if (moddata)
-		{
-			for (metadata = moddata->metadata; metadata; metadata = metadata->next)
-				metadata_send_change(client, mtags, client->name, metadata->name, metadata->value, NULL);
-		}
-		FINISH_BATCH(client, batch, mtags);
-		labeled_response_inhibit = 0;
-	}
-}
-
-void metadata_remove_pending_restore(Client *client)
-{
-	struct metadata_pending_restore **pending = &metadata_pending_restores;
-	struct metadata_pending_restore *old;
-
-	if (!client)
-		return;
-	while (*pending)
-	{
-		if ((*pending)->client == client)
-		{
-			old = *pending;
-			*pending = old->next;
-			safe_free(old->nick);
-			safe_free(old);
-			return;
-		}
-		pending = &(*pending)->next;
-	}
-}
-
-int metadata_has_pending_restore(Client *client)
-{
-	struct metadata_pending_restore *pending;
-
-	if (!client)
-		return 0;
-	for (pending = metadata_pending_restores; pending; pending = pending->next)
-		if (pending->client == client)
-			return 1;
-	return 0;
-}
-
-void metadata_schedule_nick_restore(Client *client)
-{
-	struct metadata_pending_restore *pending;
-
-	if (!MyUser(client) || metadata_is_account_registered(client) || metadata_settings.hold_time <= 0)
-		return;
-	metadata_remove_pending_restore(client);
-	if (metadata_settings.restore_delay <= 0)
-	{
-		metadata_restore_offline_user(client);
-		metadata_send_own_metadata_burst(client);
-		return;
-	}
-	pending = safe_alloc(sizeof(struct metadata_pending_restore));
-	pending->client = client;
-	pending->nick = strdup(client->name);
-	pending->due = TStime() + metadata_settings.restore_delay;
-	pending->next = metadata_pending_restores;
-	metadata_pending_restores = pending;
-}
-
-void metadata_process_pending_restores(void)
-{
-	struct metadata_pending_restore **pending = &metadata_pending_restores;
-	struct metadata_pending_restore *old;
-	time_t now = TStime();
-
-	while (*pending)
-	{
-		Client *client = (*pending)->client;
-		if (now < (*pending)->due)
-		{
-			pending = &(*pending)->next;
-			continue;
-		}
-
-		old = *pending;
-		*pending = old->next;
-		if (client && MyUser(client) && !metadata_is_account_registered(client) && !strcasecmp(client->name, old->nick))
-		{
-			metadata_restore_offline_user(client);
-			metadata_send_own_metadata_burst(client);
-		}
-		safe_free(old->nick);
-		safe_free(old);
-	}
 }
 
 void metadata_free_subs(struct metadata_subscriptions *subs)
@@ -1011,7 +683,7 @@ void metadata_send_change(Client *client, MessageTag *mtags, const char *who, co
 	}
 }
 
-/* used for broadcasting changes to subscribed users and linked servers */
+/* used for broadcasting changes to subscribed users and known metadata-capable linked servers */
 void user_metadata_changed(Client *user, const char *key, const char *value, Client *changer){
 	Client *acptr;
 	if (!user || !key)
@@ -1027,6 +699,7 @@ void user_metadata_changed(Client *user, const char *key, const char *value, Cli
 		if (acptr == user || has_common_channels(user, acptr))
 			metadata_notify_or_queue(acptr, NULL, user, NULL, key, value, changer);
 	}
+	metadata_send_to_capable_servers(user->id, key, value, changer);
 
 	/* notifications for MONITOR */
 #if UNREAL_VERSION_TIME < 202346
@@ -1051,6 +724,7 @@ void channel_metadata_changed(Channel *channel, const char *key, const char *val
 		if (metadata_is_subscribed(acptr, key) && IsMember(acptr, channel))
 			metadata_send_change(acptr, NULL, channel->name, key, value, changer);
 	}
+	metadata_send_to_capable_servers(channel->name, key, value, changer);
 	
 }
 
@@ -1083,6 +757,7 @@ void metadata_channel_free(ModData *md)
 		return; /* was not set */
 	struct metadata *metadata = md->ptr;
 	metadata_free_list(metadata, NULL, NULL, NULL);
+	md->ptr = NULL;
 }
 
 void metadata_user_free(ModData *md)
@@ -1733,6 +1408,7 @@ CMD_FUNC(cmd_metadata_remote)
 			log_data_string("sender", client->name));
 		return;
 	}
+	metadata_mark_server_capable(client);
 	if (parc < 5 || BadPtr(parv[4]))
 	{
 		value = NULL;
@@ -1783,11 +1459,6 @@ CMD_FUNC(cmd_metadata)
 		cmd_metadata_remote(client, recv_mtags, parc, parv);
 }
 #endif /* UNREAL_VERSION */
-
-int metadata_server_sync(Client *client)
-{
-	return 0;
-}
 
 static int has_common_channels_except(Client *c1, Client *c2, Channel *except)
 {
@@ -1915,45 +1586,6 @@ void metadata_send_pending(Client *client)
 	}
 }
 
-int metadata_user_registered(Client *client)
-{
-	if (metadata_is_account_registered(client))
-		metadata_restore_offline_user(client);
-	else
-		metadata_schedule_nick_restore(client);
-	metadata_send_own_metadata_burst(client);
-
-	return HOOK_CONTINUE;
-}
-
-int metadata_account_login(Client *client, MessageTag *mtags)
-{
-	metadata_remove_pending_restore(client);
-	metadata_restore_offline_user(client);
-	metadata_send_own_metadata_burst(client);
-	return 0;
-}
-
-int metadata_local_quit(Client *client, MessageTag *mtags, const char *comment)
-{
-	struct metadata_moddata_user *moddata = USER_METADATA(client);
-	int had_pending_restore = metadata_has_pending_restore(client);
-
-	metadata_remove_pending_restore(client);
-	if (had_pending_restore && (!moddata || !moddata->metadata))
-		return 0;
-	metadata_store_offline_user(client);
-	return 0;
-}
-
-int metadata_local_nickchange(Client *client, MessageTag *mtags, const char *oldnick)
-{
-	metadata_remove_pending_restore(client);
-	if (!metadata_is_account_registered(client))
-		metadata_schedule_nick_restore(client);
-	return 0;
-}
-
 void metadata_sync_user(Client *client, Client *target, MessageTag *mtags, int create_batch) {
 	char batch[BATCHLEN+1] = "";
 	struct metadata *metadata;
@@ -2013,47 +1645,6 @@ EVENT(metadata_queue_evt)
 			continue;
 		metadata_send_pending(acptr);
 	}
-}
-
-EVENT(metadata_retention_evt)
-{
-	struct metadata_offline_user **offline = &metadata_offline_users;
-	struct metadata_offline_user *old;
-	time_t now = TStime();
-
-	if (metadata_settings.hold_time <= 0)
-	{
-		while (*offline)
-		{
-			old = *offline;
-			*offline = old->next;
-			metadata_free_list(old->metadata, NULL, NULL, NULL);
-			safe_free(old->nick);
-			safe_free(old->account);
-			safe_free(old);
-		}
-		return;
-	}
-
-	while (*offline)
-	{
-		if ((now - (*offline)->last_seen) > metadata_settings.hold_time)
-		{
-			old = *offline;
-			*offline = old->next;
-			metadata_free_list(old->metadata, NULL, NULL, NULL);
-			safe_free(old->nick);
-			safe_free(old->account);
-			safe_free(old);
-			continue;
-		}
-		offline = &(*offline)->next;
-	}
-}
-
-EVENT(metadata_restore_delay_evt)
-{
-	metadata_process_pending_restores();
 }
 
 void metadata_notify_monitored(Client *client, Client *monitored, Client *changer, const char *key, const char *value)
